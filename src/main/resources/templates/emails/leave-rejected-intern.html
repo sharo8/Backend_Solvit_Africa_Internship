@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Leave request update</title>
+</head>
+<body style="font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background:#f1f5f9; margin:0; padding:0;">
+<div style="max-width:560px; margin:0 auto; padding:32px 16px;">
+    <div style="text-align:center; padding:8px 0 24px;">
+        <div th:style="'font-size:26px; font-weight:800; color:' + ${brandColor} + '; letter-spacing:-0.02em;'" th:text="'SOLVIT Africa'">SOLVIT Africa</div>
+        <div style="font-size:13px; color:#64748b; margin-top:4px;">Internship Management System</div>
+    </div>
+
+    <div style="background:#ffffff; border-radius:20px; border:1px solid #e2e8f0; padding:36px 32px; box-shadow:0 10px 40px -12px rgba(15,23,42,0.12);">
+        <p style="margin:0 0 8px 0; font-size:15px; color:#334155; font-weight:600;">Hello <span th:text="${firstName}">there</span>,</p>
+        <p style="margin:0 0 20px 0; font-size:15px; color:#475569; line-height:1.65;">
+            Your <strong>leave request</strong> was <span style="color:#b91c1c; font-weight:700;">not approved</span> at this time.
+        </p>
+
+        <div style="border-radius:14px; background:#fef2f2; border:1px solid #fecaca; padding:18px 20px; margin:20px 0;">
+            <p style="margin:0 0 10px 0; font-size:11px; font-weight:700; letter-spacing:0.1em; color:#991b1b; text-transform:uppercase;">Details</p>
+            <p style="margin:0; font-size:14px; color:#7f1d1d; line-height:1.6;">
+                <strong>Type:</strong> <span th:text="${leaveType}">PERSONAL</span><br/>
+                <strong>From:</strong> <span th:text="${startDate}">2026-04-10</span><br/>
+                <strong>To:</strong> <span th:text="${endDate}">2026-04-17</span>
+            </p>
+        </div>
+
+        <div style="border-radius:14px; background:#f8fafc; border:1px solid #e2e8f0; padding:18px 20px; margin:16px 0;">
+            <p style="margin:0 0 6px 0; font-size:11px; font-weight:700; letter-spacing:0.08em; color:#64748b; text-transform:uppercase;">Message from reviewer</p>
+            <p style="margin:0; font-size:14px; color:#334155; line-height:1.65;" th:text="${reason}">Reason</p>
+        </div>
+
+        <div style="margin-top:28px; padding-top:24px; border-top:1px solid #f1f5f9;">
+            <a th:href="${dashboardUrl}" th:style="'display:inline-block; padding:12px 22px; border-radius:12px; font-size:14px; font-weight:700; color:#ffffff; background:' + ${brandColor} + '; text-decoration:none;'">View my leave →</a>
+        </div>
+    </div>
+
+    <div style="margin-top:28px; text-align:center; color:#94a3b8; font-size:11px; line-height:1.6;">
+        SOLVIT Africa — Internship Monitoring<br/>
+        Automated message · Please do not reply to this email
+    </div>
+</div>
+</body>
+</html>

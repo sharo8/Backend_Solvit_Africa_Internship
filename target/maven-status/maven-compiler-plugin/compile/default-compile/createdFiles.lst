@@ -1,0 +1,4 @@
+com\solvit\internship_system\dto\tasks\TasksCreatedResponseDto$TasksCreatedResponseDtoBuilder.class
+com\solvit\internship_system\dto\tasks\TasksCreatedResponseDto.class
+com\solvit\internship_system\scheduler\EvaluationRemindersScheduler.class
+com\solvit\internship_system\dto\tasks\TaskAssignmentMode.class
