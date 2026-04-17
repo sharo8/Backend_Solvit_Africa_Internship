@@ -24,6 +24,10 @@ public interface InternProfileRepository extends JpaRepository<InternProfile, Lo
     @EntityGraph(attributePaths = {"user"})
     List<InternProfile> findBySupervisorUserId(Long supervisorUserId);
 
+    @EntityGraph(attributePaths = {"user"})
+    @Query("select p from InternProfile p join fetch p.user u where u.id in :userIds")
+    List<InternProfile> findAllByUserIds(@Param("userIds") List<Long> userIds);
+
     List<InternProfile> findByInstitution(String institution);
 
     @EntityGraph(attributePaths = {"user"})

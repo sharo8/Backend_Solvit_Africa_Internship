@@ -33,4 +33,10 @@ public interface ProjectGroupRepository extends JpaRepository<ProjectGroup, Long
 
     @Query("SELECT DISTINCT g FROM ProjectGroup g LEFT JOIN FETCH g.interns LEFT JOIN FETCH g.supervisor WHERE g.active = true")
     List<ProjectGroup> findAllActiveWithInternsAndSupervisor();
+
+    @Query("SELECT DISTINCT g FROM ProjectGroup g "
+            + "LEFT JOIN FETCH g.supervisor sup "
+            + "LEFT JOIN g.interns i "
+            + "WHERE g.active = true AND i.id = :internId")
+    List<ProjectGroup> findActiveByInternIdWithSupervisor(@Param("internId") Long internId);
 }

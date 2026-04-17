@@ -47,6 +47,7 @@ public class AiInsightsService {
     private final LearningPathRepository learningPathRepository;
     private final EvaluationRepository evaluationRepository;
     private final PerformanceScoreRepository performanceScoreRepository;
+    private final AiConfigurationRepository aiConfigurationRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /** Lexicon-based sentiment for French/English mixed comments. */
@@ -188,6 +189,15 @@ public class AiInsightsService {
             "Weighted model: 30% attendance, 30% tasks, 25% skill development (learning paths and evaluations), "
                     + "15% engagement (feedback sentiment, ratings, volume). Scores are compared to active-intern cohort averages.";
 
+    private static final double DEFAULT_ATTENDANCE_WEIGHT = 20.0;
+    private static final double DEFAULT_TASK_COMPLETION_WEIGHT = 25.0;
+    private static final double DEFAULT_WORK_QUALITY_WEIGHT = 30.0;
+    private static final double DEFAULT_TECHNICAL_SKILLS_WEIGHT = 15.0;
+    private static final double DEFAULT_CONDUCT_ENGAGEMENT_WEIGHT = 10.0;
+    private static final double DEFAULT_SCORE_GOOD_MIN = 70.0;
+    private static final double DEFAULT_SCORE_SATISFACTORY_MIN = 55.0;
+    private static final double DEFAULT_ATTENDANCE_WARNING_THRESHOLD = 80.0;
+
     private CohortPillarAvgs computeCohortPillarAvgs() {
         List<User> interns = userRepository.findByRoleAndActiveTrue(Role.INTERN);
         if (interns.isEmpty()) {
@@ -311,13 +321,17 @@ public class AiInsightsService {
     }
 
     private AiPerformanceEvaluationDto buildEvaluationDto(User intern, InternSignals s, CohortPillarAvgs cohort) {
+        Map<String, Double> thresholds = loadThresholdConfig();
+        double goodMin = thresholds.getOrDefault("score_good_min", DEFAULT_SCORE_GOOD_MIN);
+        double satisfactoryMin = thresholds.getOrDefault("score_satisfactory_min", DEFAULT_SCORE_SATISFACTORY_MIN);
+        double attendanceWarningThreshold = thresholds.getOrDefault("attendance_warning_threshold", DEFAULT_ATTENDANCE_WARNING_THRESHOLD);
         double momentum = attendanceMomentum(intern.getId());
         List<String> gaps = buildSkillGaps(s, cohort);
         List<String> recs = buildRecommendationsFromGaps(gaps);
         List<String> early = buildEarlyWarnings(intern.getId(), s, cohort, momentum);
 
-        String riskLevel = s.compositeScore() < 45 || s.overdueTasks() >= 3 ? "HIGH"
-                : (s.compositeScore() < 65 || s.overdueTasks() >= 1
+        String riskLevel = s.compositeScore() < satisfactoryMin || s.attendanceScore() < attendanceWarningThreshold - 10 || s.overdueTasks() >= 3 ? "HIGH"
+                : (s.compositeScore() < goodMin || s.overdueTasks() >= 1
                 || (s.compositeScore() < 68 && early.size() >= 2) ? "MEDIUM" : "LOW");
 
         return AiPerformanceEvaluationDto.builder()
@@ -341,6 +355,14 @@ public class AiInsightsService {
     }
 
     private InternSignals calculateSignals(Long internId) {
+        Map<String, Double> weights = loadWeightConfig();
+        double attendanceWeight = weights.getOrDefault("attendance_weight", DEFAULT_ATTENDANCE_WEIGHT);
+        double taskWeight = weights.getOrDefault("task_completion_weight", DEFAULT_TASK_COMPLETION_WEIGHT);
+        double qualityWeight = weights.getOrDefault("work_quality_weight", DEFAULT_WORK_QUALITY_WEIGHT);
+        double skillsWeight = weights.getOrDefault("technical_skills_weight", DEFAULT_TECHNICAL_SKILLS_WEIGHT);
+        double conductWeight = weights.getOrDefault("conduct_engagement_weight", DEFAULT_CONDUCT_ENGAGEMENT_WEIGHT);
+        double totalWeight = Math.max(1.0, attendanceWeight + taskWeight + qualityWeight + skillsWeight + conductWeight);
+
         long totalTasks = taskRepository.countByActiveTrueAndAssignee_Id(internId);
         long done = taskRepository.countByActiveTrueAndAssignee_IdAndStatusIn(
                 internId, Set.of(Task.TaskStatus.IN_REVIEW, Task.TaskStatus.VALIDATED));
@@ -403,10 +425,29 @@ public class AiInsightsService {
                 .count() / 6.0);
         double engagementScore = 100.0 * (0.5 * sentimentNorm + 0.3 * feedbackRatingNorm + 0.2 * feedbackVolumeNorm);
 
-        double composite = 0.30 * attendanceScore
-                + 0.30 * taskCompletionScore
-                + 0.25 * skillDevelopmentScore
-                + 0.15 * engagementScore;
+        List<Task> allTasksForIntern = taskRepository.findByActiveTrueAndAssignee_IdOrderByCreatedAtDesc(
+                internId,
+                org.springframework.data.domain.Pageable.unpaged()
+        ).getContent();
+        double workQualityFromTasks = allTasksForIntern.isEmpty() ? 60.0 : 50.0;
+        List<Task> validatedTasks = allTasksForIntern.stream()
+                .filter(t -> t.getStatus() == Task.TaskStatus.VALIDATED)
+                .toList();
+        if (!validatedTasks.isEmpty()) {
+            workQualityFromTasks = validatedTasks.stream()
+                    .map(Task::getEstimatedHours) // fallback signal to avoid null quality in legacy task rows
+                    .filter(Objects::nonNull)
+                    .mapToDouble(v -> Math.max(1, Math.min(5, v / 2.0)))
+                    .average()
+                    .orElse(3.0) * 20.0;
+        }
+        double workQualityScore = clamp100(0.65 * workQualityFromTasks + 0.35 * evaluationNorm * 100.0);
+
+        double composite = ((attendanceScore * attendanceWeight)
+                + (taskCompletionScore * taskWeight)
+                + (workQualityScore * qualityWeight)
+                + (skillDevelopmentScore * skillsWeight)
+                + (engagementScore * conductWeight)) / totalWeight;
 
         return new InternSignals(
                 clamp100(attendanceScore),
@@ -420,6 +461,42 @@ public class AiInsightsService {
 
     private static double clamp100(double v) {
         return Math.max(0, Math.min(100, v));
+    }
+
+    private Map<String, Double> loadAiConfig(List<String> keys, Map<String, Double> defaults) {
+        Map<String, Double> values = new HashMap<>(defaults);
+        List<AiConfiguration> rows = aiConfigurationRepository.findByConfigKeyIn(keys);
+        for (AiConfiguration row : rows) {
+            if (row.getConfigValue() == null) {
+                continue;
+            }
+            try {
+                values.put(row.getConfigKey(), Double.parseDouble(row.getConfigValue().trim()));
+            } catch (NumberFormatException ignored) {
+                // Keep default when DB value is malformed.
+            }
+        }
+        return values;
+    }
+
+    private Map<String, Double> loadWeightConfig() {
+        Map<String, Double> defaults = Map.of(
+                "attendance_weight", DEFAULT_ATTENDANCE_WEIGHT,
+                "task_completion_weight", DEFAULT_TASK_COMPLETION_WEIGHT,
+                "work_quality_weight", DEFAULT_WORK_QUALITY_WEIGHT,
+                "technical_skills_weight", DEFAULT_TECHNICAL_SKILLS_WEIGHT,
+                "conduct_engagement_weight", DEFAULT_CONDUCT_ENGAGEMENT_WEIGHT
+        );
+        return loadAiConfig(new ArrayList<>(defaults.keySet()), defaults);
+    }
+
+    private Map<String, Double> loadThresholdConfig() {
+        Map<String, Double> defaults = Map.of(
+                "score_good_min", DEFAULT_SCORE_GOOD_MIN,
+                "score_satisfactory_min", DEFAULT_SCORE_SATISFACTORY_MIN,
+                "attendance_warning_threshold", DEFAULT_ATTENDANCE_WARNING_THRESHOLD
+        );
+        return loadAiConfig(new ArrayList<>(defaults.keySet()), defaults);
     }
 
     /**

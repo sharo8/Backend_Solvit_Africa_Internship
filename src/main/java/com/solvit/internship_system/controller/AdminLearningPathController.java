@@ -28,6 +28,7 @@ public class AdminLearningPathController {
     }
 
     @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
     @ResponseStatus(HttpStatus.CREATED)
     public ResponseEntity<LearningPath> createForIntern(@RequestBody LearningPath body,
                                                         @RequestParam Long userId) {
@@ -42,11 +43,13 @@ public class AdminLearningPathController {
     }
 
     @GetMapping("/recommendations")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<List<LearningPathRecommendationDto>> recommendations(@RequestParam Long userId) {
         return ResponseEntity.ok(learningPathService.recommendForIntern(userId));
     }
 
     @PostMapping("/auto-assign")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, Integer>> autoAssign(@RequestParam Long userId) {
         int n = learningPathService.autoAssignRecommendedForIntern(userId);
         return ResponseEntity.ok(Map.of("assigned", n));

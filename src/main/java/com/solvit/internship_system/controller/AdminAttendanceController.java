@@ -23,6 +23,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -52,8 +53,9 @@ public class AdminAttendanceController {
             @RequestParam(required = false, defaultValue = "20") int limit,
             @RequestHeader("Authorization") String authHeader
     ) {
-        Long userId = jwtUtil.getUserIdFromToken(authHeader.substring(7));
-        Role role = resolveRole(authHeader);
+        String token = bearerAccessToken(authHeader);
+        Long userId = jwtUtil.getUserIdFromToken(token);
+        Role role = resolveRoleForToken(token);
         if (combined) {
             AttendanceListResponseDto body = adminAttendanceService.getList(date, supervisorId, status, search, page, limit, role, userId);
             return ResponseEntity.ok(body);
@@ -70,13 +72,13 @@ public class AdminAttendanceController {
     }
 
     @PostMapping("/public-holidays")
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<PublicHolidayDto> createPublicHoliday(@Valid @RequestBody CreatePublicHolidayRequestDto body) {
         return ResponseEntity.ok(publicHolidayService.create(body));
     }
 
     @DeleteMapping("/public-holidays/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN','HR')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> deletePublicHoliday(@PathVariable Long id) {
         publicHolidayService.deleteById(id);
         return ResponseEntity.noContent().build();
@@ -88,8 +90,9 @@ public class AdminAttendanceController {
             @RequestParam(required = false) Long supervisorId,
             @RequestHeader("Authorization") String authHeader
     ) {
-        Long userId = jwtUtil.getUserIdFromToken(authHeader.substring(7));
-        Role role = resolveRole(authHeader);
+        String token = bearerAccessToken(authHeader);
+        Long userId = jwtUtil.getUserIdFromToken(token);
+        Role role = resolveRoleForToken(token);
         return ResponseEntity.ok(adminAttendanceService.stats(date, supervisorId, role, userId));
     }
 
@@ -101,8 +104,9 @@ public class AdminAttendanceController {
             @RequestParam(required = false, defaultValue = "true") boolean includeCompleted,
             @RequestHeader("Authorization") String authHeader
     ) {
-        Long userId = jwtUtil.getUserIdFromToken(authHeader.substring(7));
-        Role role = resolveRole(authHeader);
+        String token = bearerAccessToken(authHeader);
+        Long userId = jwtUtil.getUserIdFromToken(token);
+        Role role = resolveRoleForToken(token);
         long days = java.time.temporal.ChronoUnit.DAYS.between(from, to);
         if (days > 370) {
             throw new BadRequestException("Range too large (max 370 days)");
@@ -117,8 +121,9 @@ public class AdminAttendanceController {
             @RequestParam(required = false) Long supervisorId,
             @RequestHeader("Authorization") String authHeader
     ) {
-        Long userId = jwtUtil.getUserIdFromToken(authHeader.substring(7));
-        Role role = resolveRole(authHeader);
+        String token = bearerAccessToken(authHeader);
+        Long userId = jwtUtil.getUserIdFromToken(token);
+        Role role = resolveRoleForToken(token);
         return ResponseEntity.ok(adminAttendanceService.getForDateRange(from, to, supervisorId, role, userId));
     }
 
@@ -129,23 +134,27 @@ public class AdminAttendanceController {
             @RequestParam int year,
             @RequestHeader("Authorization") String authHeader
     ) {
-        Long userId = jwtUtil.getUserIdFromToken(authHeader.substring(7));
-        Role role = resolveRole(authHeader);
+        String token = bearerAccessToken(authHeader);
+        Long userId = jwtUtil.getUserIdFromToken(token);
+        Role role = resolveRoleForToken(token);
         return ResponseEntity.ok(adminAttendanceService.internMonthlyHistory(internId, month, year, role, userId));
     }
 
     /** Create or update (upsert) by intern + date. */
     @PostMapping
+    @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
     public ResponseEntity<AdminAttendanceRowDto> upsert(
             @RequestHeader("Authorization") String authHeader,
             @Valid @RequestBody UpsertAttendanceRequestDto dto
     ) {
-        Long userId = jwtUtil.getUserIdFromToken(authHeader.substring(7));
-        Role role = resolveRole(authHeader);
+        String token = bearerAccessToken(authHeader);
+        Long userId = jwtUtil.getUserIdFromToken(token);
+        Role role = resolveRoleForToken(token);
         return ResponseEntity.ok(adminAttendanceService.upsert(dto, userId, role));
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
     public ResponseEntity<AdminAttendanceRowDto> updatePut(
             @RequestHeader("Authorization") String authHeader,
             @PathVariable Long id,
@@ -155,6 +164,7 @@ public class AdminAttendanceController {
     }
 
     @PatchMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
     public ResponseEntity<AdminAttendanceRowDto> updatePatch(
             @RequestHeader("Authorization") String authHeader,
             @PathVariable Long id,
@@ -164,8 +174,9 @@ public class AdminAttendanceController {
     }
 
     private ResponseEntity<AdminAttendanceRowDto> updateInternal(String authHeader, Long id, UpsertAttendanceRequestDto dto) {
-        Long userId = jwtUtil.getUserIdFromToken(authHeader.substring(7));
-        Role role = resolveRole(authHeader);
+        String token = bearerAccessToken(authHeader);
+        Long userId = jwtUtil.getUserIdFromToken(token);
+        Role role = resolveRoleForToken(token);
         return ResponseEntity.ok(adminAttendanceService.update(id, dto, userId, role));
     }
 
@@ -177,12 +188,14 @@ public class AdminAttendanceController {
     }
 
     @PostMapping("/bulk")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
     public ResponseEntity<List<AdminAttendanceRowDto>> bulk(
             @RequestHeader("Authorization") String authHeader,
             @Valid @RequestBody BulkAttendanceRequestDto dto
     ) {
-        Long userId = jwtUtil.getUserIdFromToken(authHeader.substring(7));
-        Role role = resolveRole(authHeader);
+        String token = bearerAccessToken(authHeader);
+        Long userId = jwtUtil.getUserIdFromToken(token);
+        Role role = resolveRoleForToken(token);
         return ResponseEntity.ok(adminAttendanceService.bulk(dto, userId, role));
     }
 
@@ -195,8 +208,9 @@ public class AdminAttendanceController {
             @RequestParam(required = false, defaultValue = "csv") String format,
             @RequestHeader("Authorization") String authHeader
     ) {
-        Long userId = jwtUtil.getUserIdFromToken(authHeader.substring(7));
-        Role role = resolveRole(authHeader);
+        String token = bearerAccessToken(authHeader);
+        Long userId = jwtUtil.getUserIdFromToken(token);
+        Role role = resolveRoleForToken(token);
         if ("pdf".equalsIgnoreCase(format)) {
             byte[] bytes = adminAttendanceService.exportPdf(from, to, supervisorId, status, role, userId);
             String filename = "attendance_" + from + "_to_" + to + ".pdf";
@@ -213,9 +227,19 @@ public class AdminAttendanceController {
                 .body(bytes);
     }
 
-    private Role resolveRole(String authHeader) {
-        String token = authHeader.substring(7);
-        String r = jwtUtil.getRoleFromToken(token);
+    private String bearerAccessToken(String authHeader) {
+        if (!StringUtils.hasText(authHeader) || !authHeader.startsWith("Bearer ")) {
+            throw new AccessDeniedException("Missing or invalid Authorization header");
+        }
+        String token = authHeader.substring(7).trim();
+        if (!StringUtils.hasText(token)) {
+            throw new AccessDeniedException("Missing bearer token");
+        }
+        return token;
+    }
+
+    private Role resolveRoleForToken(String accessToken) {
+        String r = jwtUtil.getRoleFromToken(accessToken);
         if (r == null) {
             throw new AccessDeniedException("Missing role");
         }

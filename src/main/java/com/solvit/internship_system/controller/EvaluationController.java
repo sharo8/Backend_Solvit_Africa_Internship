@@ -17,6 +17,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+import java.time.LocalDate;
+import java.util.LinkedHashMap;
 
 @RestController
 @RequestMapping("/api/evaluations")
@@ -65,6 +67,21 @@ public class EvaluationController {
             @PathVariable Long id) {
         Long uid = jwtUtil.getUserIdFromToken(authHeader.substring(7));
         return ResponseEntity.ok(evaluationService.getById(id, uid));
+    }
+
+    @GetMapping("/attendance-score")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
+    public ResponseEntity<Map<String, Object>> suggestedAttendanceScore(
+            @RequestParam Long internId,
+            @RequestParam(required = false) LocalDate evaluationDate,
+            @RequestParam(defaultValue = "30") int lookbackDays) {
+        Integer score = evaluationService.suggestAttendanceScore(internId, evaluationDate, lookbackDays);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("internId", internId);
+        out.put("evaluationDate", evaluationDate);
+        out.put("lookbackDays", lookbackDays);
+        out.put("attendanceScore", score);
+        return ResponseEntity.ok(out);
     }
 
     @PutMapping("/{id}")

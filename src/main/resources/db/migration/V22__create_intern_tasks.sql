@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS intern_tasks (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    intern_id BIGINT NOT NULL,
+    supervisor_id BIGINT NOT NULL,
+    title VARCHAR(500) NOT NULL,
+    description TEXT NULL,
+    assigned_date DATE NOT NULL,
+    due_date DATE NOT NULL,
+    completed_date DATE NULL,
+    status VARCHAR(32) NOT NULL,
+    quality_rating DECIMAL(4,2) NULL,
+    quality_comment TEXT NULL,
+    is_on_time TINYINT(1) NOT NULL DEFAULT 0,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    KEY idx_intern_tasks_intern (intern_id),
+    KEY idx_intern_tasks_supervisor (supervisor_id),
+    KEY idx_intern_tasks_status (status),
+    KEY idx_intern_tasks_due_date (due_date),
+    CONSTRAINT fk_intern_tasks_intern FOREIGN KEY (intern_id) REFERENCES interns(id),
+    CONSTRAINT fk_intern_tasks_supervisor FOREIGN KEY (supervisor_id) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

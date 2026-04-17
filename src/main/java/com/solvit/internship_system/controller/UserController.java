@@ -63,7 +63,7 @@ public class UserController {
             @RequestParam(required = false) HrApprovalStatus hrApproval,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
-            @RequestHeader("Authorization") String authHeader) {
+            @RequestHeader(value = "Authorization", required = false) String authHeader) {
         Long currentUserId = authHeader != null && authHeader.startsWith("Bearer ")
                 ? jwtUtil.getUserIdFromToken(authHeader.substring(7)) : null;
         return ResponseEntity.ok(userManagementService.searchUsers(q, role, active, hrApproval, page, size, currentUserId));
@@ -74,7 +74,7 @@ public class UserController {
     @PreAuthorize("hasAnyRole('ADMIN','HR')")
     @ResponseStatus(HttpStatus.CREATED)
     public ResponseEntity<UserResponseDTO> create(@Valid @RequestBody CreateUserRequestDTO dto,
-                                                   @RequestHeader("Authorization") String authHeader) {
+                                                   @RequestHeader(value = "Authorization", required = false) String authHeader) {
         Long currentUserId = authHeader != null && authHeader.startsWith("Bearer ")
                 ? jwtUtil.getUserIdFromToken(authHeader.substring(7)) : null;
         Role actorRole = currentUser.requireRole();
@@ -86,7 +86,7 @@ public class UserController {
     @PreAuthorize("hasAnyRole('ADMIN','HR')")
     public ResponseEntity<UserResponseDTO> update(@PathVariable Long id,
                                                   @Valid @RequestBody UpdateUserRequestDTO dto,
-                                                  @RequestHeader("Authorization") String authHeader) {
+                                                  @RequestHeader(value = "Authorization", required = false) String authHeader) {
         Long currentUserId = authHeader != null && authHeader.startsWith("Bearer ")
                 ? jwtUtil.getUserIdFromToken(authHeader.substring(7)) : null;
         Role actorRole = currentUser.requireRole();
@@ -98,7 +98,7 @@ public class UserController {
     @PreAuthorize("hasRole('ADMIN')")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public ResponseEntity<Void> delete(@PathVariable Long id,
-                                        @RequestHeader("Authorization") String authHeader) {
+                                        @RequestHeader(value = "Authorization", required = false) String authHeader) {
         Long currentUserId = authHeader != null && authHeader.startsWith("Bearer ")
                 ? jwtUtil.getUserIdFromToken(authHeader.substring(7)) : null;
         userManagementService.deleteUser(id, currentUserId);
@@ -108,7 +108,7 @@ public class UserController {
     @PatchMapping("/{id}/activate")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<UserResponseDTO> activate(@PathVariable Long id,
-                                                    @RequestHeader("Authorization") String authHeader) {
+                                                    @RequestHeader(value = "Authorization", required = false) String authHeader) {
         Long currentUserId = authHeader != null && authHeader.startsWith("Bearer ")
                 ? jwtUtil.getUserIdFromToken(authHeader.substring(7)) : null;
         return ResponseEntity.ok(userManagementService.activateUser(id, currentUserId));
@@ -117,7 +117,7 @@ public class UserController {
     @PatchMapping("/{id}/deactivate")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<UserResponseDTO> deactivate(@PathVariable Long id,
-                                                     @RequestHeader("Authorization") String authHeader) {
+                                                     @RequestHeader(value = "Authorization", required = false) String authHeader) {
         Long currentUserId = authHeader != null && authHeader.startsWith("Bearer ")
                 ? jwtUtil.getUserIdFromToken(authHeader.substring(7)) : null;
         return ResponseEntity.ok(userManagementService.deactivateUser(id, currentUserId));
@@ -126,7 +126,7 @@ public class UserController {
     @PatchMapping("/{id}/approve-intern")
     @PreAuthorize("hasAnyRole('ADMIN','HR')")
     public ResponseEntity<UserResponseDTO> approveIntern(@PathVariable Long id,
-                                                         @RequestHeader("Authorization") String authHeader) {
+                                                         @RequestHeader(value = "Authorization", required = false) String authHeader) {
         Long currentUserId = authHeader != null && authHeader.startsWith("Bearer ")
                 ? jwtUtil.getUserIdFromToken(authHeader.substring(7)) : null;
         return ResponseEntity.ok(userManagementService.approveInternRegistration(id, currentUserId));
@@ -135,7 +135,7 @@ public class UserController {
     @PatchMapping("/{id}/reject-intern")
     @PreAuthorize("hasAnyRole('ADMIN','HR')")
     public ResponseEntity<UserResponseDTO> rejectIntern(@PathVariable Long id,
-                                                        @RequestHeader("Authorization") String authHeader) {
+                                                        @RequestHeader(value = "Authorization", required = false) String authHeader) {
         Long currentUserId = authHeader != null && authHeader.startsWith("Bearer ")
                 ? jwtUtil.getUserIdFromToken(authHeader.substring(7)) : null;
         return ResponseEntity.ok(userManagementService.rejectInternRegistration(id, currentUserId));
@@ -145,7 +145,7 @@ public class UserController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ResetPasswordResponseDTO> resetPassword(@PathVariable Long id,
                                                                   @RequestBody(required = false) ResetPasswordRequestDTO body,
-                                                                  @RequestHeader("Authorization") String authHeader) {
+                                                                  @RequestHeader(value = "Authorization", required = false) String authHeader) {
         Long currentUserId = authHeader != null && authHeader.startsWith("Bearer ")
                 ? jwtUtil.getUserIdFromToken(authHeader.substring(7)) : null;
         String newPassword = body != null ? body.getNewPassword() : null;
@@ -155,7 +155,7 @@ public class UserController {
     @PostMapping("/bulk-deactivate")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<BulkOperationResponseDTO> bulkDeactivate(@Valid @RequestBody BulkIdsRequestDTO body,
-                                                                    @RequestHeader("Authorization") String authHeader) {
+                                                                    @RequestHeader(value = "Authorization", required = false) String authHeader) {
         Long currentUserId = authHeader != null && authHeader.startsWith("Bearer ")
                 ? jwtUtil.getUserIdFromToken(authHeader.substring(7)) : null;
         return ResponseEntity.ok(userManagementService.bulkDeactivate(body.getIds(), currentUserId));
@@ -164,7 +164,7 @@ public class UserController {
     @PostMapping("/bulk-delete")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<BulkOperationResponseDTO> bulkDelete(@Valid @RequestBody BulkIdsRequestDTO body,
-                                                               @RequestHeader("Authorization") String authHeader) {
+                                                               @RequestHeader(value = "Authorization", required = false) String authHeader) {
         Long currentUserId = authHeader != null && authHeader.startsWith("Bearer ")
                 ? jwtUtil.getUserIdFromToken(authHeader.substring(7)) : null;
         return ResponseEntity.ok(userManagementService.bulkDelete(body.getIds(), currentUserId));

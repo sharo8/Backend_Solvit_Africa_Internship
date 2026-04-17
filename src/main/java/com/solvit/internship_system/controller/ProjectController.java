@@ -37,7 +37,7 @@ public class ProjectController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ProjectDto> create(
             @RequestHeader("Authorization") String authHeader,
             @RequestBody CreateProjectRequestDto dto
@@ -47,7 +47,7 @@ public class ProjectController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ProjectDto> update(
             @RequestHeader("Authorization") String authHeader,
             @PathVariable Long id,
@@ -58,7 +58,7 @@ public class ProjectController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN','SUPERVISOR')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, String>> delete(
             @RequestHeader("Authorization") String authHeader,
             @PathVariable Long id

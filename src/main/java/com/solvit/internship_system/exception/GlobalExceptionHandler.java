@@ -10,6 +10,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.time.Instant;
 import java.util.HashMap;
@@ -67,6 +68,17 @@ public class GlobalExceptionHandler {
         String msg = root.getMessage() != null ? root.getMessage() : "Database error";
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
                 new ApiError("Database error: " + msg, HttpStatus.INTERNAL_SERVER_ERROR.value(), Instant.now()));
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiError> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
+        String name = e.getName() != null ? e.getName() : "parameter";
+        String msg = "Invalid value for '" + name + "'";
+        if (e.getValue() != null) {
+            msg += ": " + e.getValue();
+        }
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(
+                new ApiError(msg, HttpStatus.BAD_REQUEST.value(), Instant.now()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

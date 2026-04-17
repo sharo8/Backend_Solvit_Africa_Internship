@@ -1,0 +1,22 @@
+CREATE TABLE IF NOT EXISTS interns (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    supervisor_id BIGINT NULL,
+    branch_id BIGINT NULL,
+    first_name VARCHAR(120) NOT NULL,
+    last_name VARCHAR(120) NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    university VARCHAR(255) NULL,
+    department VARCHAR(255) NULL,
+    start_date DATE NULL,
+    end_date DATE NULL,
+    status VARCHAR(32) NOT NULL,
+    preferred_language VARCHAR(8) NOT NULL DEFAULT 'EN',
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    KEY idx_interns_user (user_id),
+    KEY idx_interns_supervisor (supervisor_id),
+    KEY idx_interns_branch (branch_id),
+    KEY idx_interns_status (status),
+    CONSTRAINT fk_interns_user FOREIGN KEY (user_id) REFERENCES users(id),
+    CONSTRAINT fk_interns_supervisor FOREIGN KEY (supervisor_id) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

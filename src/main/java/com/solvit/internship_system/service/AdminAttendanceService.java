@@ -31,9 +31,12 @@ import com.solvit.internship_system.repository.LeaveRequestRepository;
 import com.solvit.internship_system.repository.PublicHolidayRepository;
 import com.solvit.internship_system.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.awt.Color;
 import java.io.ByteArrayOutputStream;
@@ -58,6 +61,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AdminAttendanceService {
@@ -72,11 +76,17 @@ public class AdminAttendanceService {
     private final PublicHolidayRepository publicHolidayRepository;
     private final ConsecutiveAbsenceNotificationService consecutiveAbsenceNotificationService;
     private final AuditService auditService;
+    private final PlatformTransactionManager transactionManager;
 
     @Transactional
     public List<AdminAttendanceRowDto> getForDate(LocalDate date, Long supervisorId, Attendance.AttendanceStatus status) {
-        ensureDerivedRecordsForDate(date);
-        return buildRowsForDate(date, supervisorId, status);
+        runDerivedRecordsInIsolatedTransaction(date);
+        try {
+            return buildRowsForDate(date, supervisorId, status);
+        } catch (Exception e) {
+            log.error("Failed to build attendance rows for date={}, supervisorId={}, status={}", date, supervisorId, status, e);
+            throw e;
+        }
     }
 
     @Transactional
@@ -90,32 +100,40 @@ public class AdminAttendanceService {
             Role callerRole,
             Long callerUserId
     ) {
-        Long effectiveSupervisor = resolveSupervisorFilter(supervisorId, callerRole, callerUserId);
-        List<AdminAttendanceRowDto> all = getForDate(date, effectiveSupervisor, status);
-        String q = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
-        List<AdminAttendanceRowDto> filtered = q.isEmpty()
-                ? all
-                : all.stream()
-                .filter(r -> (r.getFirstName() + " " + r.getLastName()).toLowerCase(Locale.ROOT).contains(q)
-                        || (r.getUniversityId() != null && r.getUniversityId().toLowerCase(Locale.ROOT).contains(q)))
-                .toList();
-        int safeLimit = Math.max(1, Math.min(limit, 200));
-        int safePage = Math.max(0, page);
-        long total = filtered.size();
-        int fromIdx = safePage * safeLimit;
-        List<AdminAttendanceRowDto> slice = fromIdx >= filtered.size()
-                ? List.of()
-                : filtered.subList(fromIdx, Math.min(fromIdx + safeLimit, filtered.size()));
-        AttendanceStatsDto stats = computeStatsFromRows(all, date);
-        return AttendanceListResponseDto.builder()
-                .records(slice)
-                .stats(stats)
-                .pagination(PaginationDto.builder()
-                        .total(total)
-                        .page(safePage)
-                        .limit(safeLimit)
-                        .build())
-                .build();
+        try {
+            Long effectiveSupervisor = resolveSupervisorFilter(supervisorId, callerRole, callerUserId);
+            List<AdminAttendanceRowDto> all = getForDate(date, effectiveSupervisor, status);
+            String q = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
+            List<AdminAttendanceRowDto> filtered = q.isEmpty()
+                    ? all
+                    : all.stream()
+                    .filter(r -> ((nvl(r.getFirstName()) + " " + nvl(r.getLastName())).toLowerCase(Locale.ROOT).contains(q))
+                            || (r.getUniversityId() != null && r.getUniversityId().toLowerCase(Locale.ROOT).contains(q)))
+                    .toList();
+            int safeLimit = Math.max(1, Math.min(limit, 200));
+            int safePage = Math.max(0, page);
+            long total = filtered.size();
+            int fromIdx = safePage * safeLimit;
+            List<AdminAttendanceRowDto> slice = fromIdx >= filtered.size()
+                    ? List.of()
+                    : filtered.subList(fromIdx, Math.min(fromIdx + safeLimit, filtered.size()));
+            AttendanceStatsDto stats = computeStatsFromRows(all, date);
+            return AttendanceListResponseDto.builder()
+                    .records(slice)
+                    .stats(stats)
+                    .pagination(PaginationDto.builder()
+                            .total(total)
+                            .page(safePage)
+                            .limit(safeLimit)
+                            .build())
+                    .build();
+        } catch (Exception e) {
+            log.error(
+                    "Attendance combined list failed for date={}, supervisorId={}, status={}, search={}, page={}, limit={}, callerRole={}, callerUserId={}",
+                    date, supervisorId, status, search, page, limit, callerRole, callerUserId, e
+            );
+            throw e;
+        }
     }
 
     private Long resolveSupervisorFilter(Long requestSupervisorId, Role callerRole, Long callerUserId) {
@@ -207,11 +225,12 @@ public class AdminAttendanceService {
 
         List<AttendanceInternSummaryDto> summaries = new ArrayList<>();
         List<User> interns = listInternUsers(effective);
+        Map<Long, InternProfile> profileByUserId = loadInternProfileMap(interns.stream().map(User::getId).toList());
         for (User u : interns) {
             if (u.getRole() != Role.INTERN) {
                 continue;
             }
-            InternProfile ip = internProfileRepository.findByUser_Id(u.getId()).orElse(null);
+            InternProfile ip = profileByUserId.get(u.getId());
             if (ip == null) {
                 continue;
             }
@@ -225,11 +244,12 @@ public class AdminAttendanceService {
         if (includeCompleted) {
             Set<Long> seen = summaries.stream().map(AttendanceInternSummaryDto::getInternId).collect(Collectors.toSet());
             List<User> allInterns = userRepository.findByRoleAndActiveTrue(Role.INTERN);
+            Map<Long, InternProfile> allProfilesByUserId = loadInternProfileMap(allInterns.stream().map(User::getId).toList());
             for (User u : allInterns) {
                 if (seen.contains(u.getId())) {
                     continue;
                 }
-                InternProfile ip = internProfileRepository.findByUser_Id(u.getId()).orElse(null);
+                InternProfile ip = allProfilesByUserId.get(u.getId());
                 if (ip == null) {
                     continue;
                 }
@@ -654,12 +674,31 @@ public class AdminAttendanceService {
     }
 
     private void ensureDerivedRecordsForDate(LocalDate date) {
-        if (publicHolidayRepository.existsByHolidayDate(date)) {
-            return;
+        try {
+            if (publicHolidayRepository.existsByHolidayDate(date)) {
+                return;
+            }
+            ensureLeaveExcused(date);
+            // Persist leave rows before querying same date — avoids duplicate (user_id, attendance_date) inserts
+            // that corrupt the session (ConstraintViolation → AssertionFailure: null id on flush).
+            attendanceRepository.flush();
+            if (shouldAutoMarkAbsentForDate(date)) {
+                markAbsentWhereMissing(date);
+            }
+        } catch (Exception e) {
+            log.error("ensureDerivedRecordsForDate failed for date={}", date, e);
+            throw e;
         }
-        ensureLeaveExcused(date);
-        if (shouldAutoMarkAbsentForDate(date)) {
-            markAbsentWhereMissing(date);
+    }
+
+    private void runDerivedRecordsInIsolatedTransaction(LocalDate date) {
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        try {
+            template.executeWithoutResult(status -> ensureDerivedRecordsForDate(date));
+        } catch (Exception e) {
+            // Do not poison the main read transaction when derivation fails.
+            log.error("Attendance derivation failed in isolated transaction for date={}", date, e);
         }
     }
 
@@ -691,7 +730,7 @@ public class AdminAttendanceService {
 
     private void markAbsentWhereMissing(LocalDate date) {
         List<User> interns = eligibleInternsForAttendance(date, null);
-        Set<Long> existing = attendanceRepository.findByAttendanceDate(date).stream()
+        Set<Long> existing = attendanceRepository.findByAttendanceDateWithAssociations(date).stream()
                 .map(a -> a.getUser().getId())
                 .collect(Collectors.toSet());
         for (User intern : interns) {
@@ -699,6 +738,9 @@ public class AdminAttendanceService {
                 continue;
             }
             if (hasApprovedLeave(intern.getId(), date)) {
+                continue;
+            }
+            if (attendanceRepository.findByUser_IdAndAttendanceDate(intern.getId(), date).isPresent()) {
                 continue;
             }
             Attendance a = Attendance.builder()
@@ -720,17 +762,21 @@ public class AdminAttendanceService {
 
     private List<AdminAttendanceRowDto> buildRowsForDate(LocalDate date, Long supervisorId, Attendance.AttendanceStatus status) {
         List<User> interns = eligibleInternsForAttendance(date, supervisorId);
+        Map<Long, InternProfile> profileByUserId = loadInternProfileMap(interns.stream().map(User::getId).toList());
+        Map<Long, String> supervisorNames = loadSupervisorNameMap(profileByUserId.values().stream()
+                .map(InternProfile::getSupervisorUserId)
+                .filter(Objects::nonNull)
+                .toList());
 
-        Map<Long, Attendance> attendanceByUser = attendanceRepository.findByAttendanceDate(date).stream()
+        Map<Long, Attendance> attendanceByUser = attendanceRepository.findByAttendanceDateWithAssociations(date).stream()
+                .filter(a -> a.getUser() != null && a.getUser().getId() != null)
                 .collect(Collectors.toMap(a -> a.getUser().getId(), a -> a, (a1, a2) -> a1));
 
         List<AdminAttendanceRowDto> rows = new ArrayList<>();
         for (User intern : interns) {
-            InternProfile ip = internProfileRepository.findByUser_Id(intern.getId()).orElse(null);
+            InternProfile ip = profileByUserId.get(intern.getId());
             Long supId = ip != null ? ip.getSupervisorUserId() : null;
-            String supName = supId != null
-                    ? userRepository.findById(supId).map(u -> u.getFirstName() + " " + u.getLastName()).orElse(null)
-                    : null;
+            String supName = supId != null ? supervisorNames.get(supId) : null;
 
             Attendance a = attendanceByUser.get(intern.getId());
             if (a != null && status != null && a.getStatus() != status) {
@@ -761,7 +807,7 @@ public class AdminAttendanceService {
                         .manualEntry(false)
                         .build());
             } else {
-                rows.add(toRow(a));
+                rows.add(toRow(a, profileByUserId, supervisorNames));
             }
         }
 
@@ -789,7 +835,10 @@ public class AdminAttendanceService {
             return userRepository.findByRoleAndActiveTrue(Role.INTERN);
         }
         List<Long> internIds = internProfileRepository.findBySupervisorUserId(supervisorId).stream()
-                .map(ip -> ip.getUser().getId())
+                .map(InternProfile::getUser)
+                .filter(Objects::nonNull)
+                .map(User::getId)
+                .filter(Objects::nonNull)
                 .toList();
         if (internIds.isEmpty()) {
             return List.of();
@@ -805,9 +854,10 @@ public class AdminAttendanceService {
         if (!InternshipAttendanceRules.isWorkday(date) || publicHolidayRepository.existsByHolidayDate(date)) {
             return List.of();
         }
+        Map<Long, InternProfile> profileByUserId = loadInternProfileMap(base.stream().map(User::getId).toList());
         return base.stream()
                 .filter(u -> {
-                    InternProfile ip = internProfileRepository.findByUser_Id(u.getId()).orElse(null);
+                    InternProfile ip = profileByUserId.get(u.getId());
                     return ip != null && InternshipAttendanceRules.eligibleForAttendanceOnDate(ip, date);
                 })
                 .toList();
@@ -927,21 +977,37 @@ public class AdminAttendanceService {
             throw new IllegalArgumentException("Attendance cannot be null");
         }
         Long internId = a.getUser() != null ? a.getUser().getId() : null;
-        InternProfile ip = internId != null ? internProfileRepository.findByUser_Id(internId).orElse(null) : null;
+        Map<Long, InternProfile> profileByUserId = loadInternProfileMap(internId != null ? List.of(internId) : List.of());
+        Map<Long, String> supervisorNames = loadSupervisorNameMap(profileByUserId.values().stream()
+                .map(InternProfile::getSupervisorUserId)
+                .filter(Objects::nonNull)
+                .toList());
+        return toRow(a, profileByUserId, supervisorNames);
+    }
+
+    private AdminAttendanceRowDto toRow(
+            Attendance a,
+            Map<Long, InternProfile> profileByUserId,
+            Map<Long, String> supervisorNames
+    ) {
+        if (a == null) {
+            throw new IllegalArgumentException("Attendance cannot be null");
+        }
+        User attendanceUser = a.getUser();
+        Long internId = attendanceUser != null ? attendanceUser.getId() : null;
+        InternProfile ip = internId != null ? profileByUserId.get(internId) : null;
         Long supId = ip != null ? ip.getSupervisorUserId() : null;
-        String supName = supId != null
-                ? userRepository.findById(supId).map(u -> u.getFirstName() + " " + u.getLastName()).orElse(null)
-                : null;
+        String supName = supId != null ? supervisorNames.get(supId) : null;
         User modBy = a.getModifiedBy();
         Long modId = modBy != null ? modBy.getId() : null;
         String modName = modBy != null ? modBy.getFirstName() + " " + modBy.getLastName() : null;
         return AdminAttendanceRowDto.builder()
                 .id(a.getId())
                 .internId(internId)
-                .firstName(a.getUser() != null ? a.getUser().getFirstName() : null)
-                .lastName(a.getUser() != null ? a.getUser().getLastName() : null)
-                .profilePhotoUrl(a.getUser() != null ? a.getUser().getProfilePhotoUrl() : null)
-                .universityId(a.getUser() != null ? a.getUser().getUniversityId() : null)
+                .firstName(attendanceUser != null ? attendanceUser.getFirstName() : null)
+                .lastName(attendanceUser != null ? attendanceUser.getLastName() : null)
+                .profilePhotoUrl(attendanceUser != null ? attendanceUser.getProfilePhotoUrl() : null)
+                .universityId(attendanceUser != null ? attendanceUser.getUniversityId() : null)
                 .supervisorId(supId)
                 .supervisorName(supName)
                 .date(a.getAttendanceDate())
@@ -956,5 +1022,26 @@ public class AdminAttendanceService {
                 .modifiedByUserId(modId)
                 .modifiedByName(modName)
                 .build();
+    }
+
+    private Map<Long, InternProfile> loadInternProfileMap(List<Long> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return Map.of();
+        }
+        return internProfileRepository.findAllByUserIds(userIds).stream()
+                .filter(p -> p.getUser() != null && p.getUser().getId() != null)
+                .collect(Collectors.toMap(p -> p.getUser().getId(), p -> p, (a, b) -> a));
+    }
+
+    private Map<Long, String> loadSupervisorNameMap(List<Long> supervisorIds) {
+        if (supervisorIds == null || supervisorIds.isEmpty()) {
+            return Map.of();
+        }
+        return userRepository.findAllById(supervisorIds).stream()
+                .collect(Collectors.toMap(
+                        User::getId,
+                        u -> ((u.getFirstName() != null ? u.getFirstName() : "") + " " + (u.getLastName() != null ? u.getLastName() : "")).trim(),
+                        (a, b) -> a
+                ));
     }
 }

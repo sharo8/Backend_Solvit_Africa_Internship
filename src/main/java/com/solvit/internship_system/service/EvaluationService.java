@@ -5,6 +5,7 @@ import com.solvit.internship_system.dto.evaluation.CreateEvaluationRequestDto;
 import com.solvit.internship_system.dto.evaluation.EvaluationDto;
 import com.solvit.internship_system.dto.evaluation.UpdateEvaluationDraftDto;
 import com.solvit.internship_system.entity.Evaluation;
+import com.solvit.internship_system.entity.Attendance;
 import com.solvit.internship_system.entity.ProjectGroup;
 import com.solvit.internship_system.entity.Role;
 import com.solvit.internship_system.entity.User;
@@ -12,6 +13,7 @@ import com.solvit.internship_system.exception.BadRequestException;
 import com.solvit.internship_system.exception.ResourceNotFoundException;
 import com.solvit.internship_system.mapper.EvaluationMapper;
 import com.solvit.internship_system.repository.EvaluationRepository;
+import com.solvit.internship_system.repository.AttendanceRepository;
 import com.solvit.internship_system.repository.ProjectGroupRepository;
 import com.solvit.internship_system.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -25,8 +27,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 @Slf4j
 @Service
@@ -37,6 +41,8 @@ public class EvaluationService {
     private final EvaluationRepository evaluationRepository;
     private final UserRepository userRepository;
     private final ProjectGroupRepository projectGroupRepository;
+    private final AttendanceRepository attendanceRepository;
+    private final AiInsightsService aiInsightsService;
 
     @Transactional
     public EvaluationDto create(CreateEvaluationRequestDto dto, Long evaluatorId) {
@@ -87,7 +93,9 @@ public class EvaluationService {
             throw new BadRequestException("Minimum attendance score for an evaluation is " + MIN_ATTENDANCE_SCORE_FOR_EVALUATION + "%");
         }
 
-        return EvaluationMapper.toDto(evaluationRepository.save(e));
+        Evaluation saved = evaluationRepository.save(e);
+        safelyRecomputeInternAi(saved.getIntern().getId());
+        return EvaluationMapper.toDto(saved);
     }
 
     @Transactional
@@ -123,7 +131,9 @@ public class EvaluationService {
             e.setEvaluationDate(dto.getEvaluationDate());
         }
 
-        return EvaluationMapper.toDto(evaluationRepository.save(e));
+        Evaluation saved = evaluationRepository.save(e);
+        safelyRecomputeInternAi(saved.getIntern().getId());
+        return EvaluationMapper.toDto(saved);
     }
 
     @Transactional
@@ -144,7 +154,9 @@ public class EvaluationService {
             throw new BadRequestException("Minimum attendance score for submission is " + MIN_ATTENDANCE_SCORE_FOR_EVALUATION + "%");
         }
         e.setStatus(Evaluation.EvaluationStatus.SUBMITTED);
-        return EvaluationMapper.toDto(evaluationRepository.save(e));
+        Evaluation saved = evaluationRepository.save(e);
+        safelyRecomputeInternAi(saved.getIntern().getId());
+        return EvaluationMapper.toDto(saved);
     }
 
     @Transactional
@@ -168,7 +180,9 @@ public class EvaluationService {
         e.setInternAcknowledged(true);
         e.setAcknowledgedAt(Instant.now());
         e.setStatus(Evaluation.EvaluationStatus.ACKNOWLEDGED);
-        return EvaluationMapper.toDto(evaluationRepository.save(e));
+        Evaluation saved = evaluationRepository.save(e);
+        safelyRecomputeInternAi(saved.getIntern().getId());
+        return EvaluationMapper.toDto(saved);
     }
 
     @Transactional(readOnly = true)
@@ -272,5 +286,48 @@ public class EvaluationService {
             return;
         }
         throw new AccessDeniedException("Only the evaluator or an admin can update this draft");
+    }
+
+    @Transactional(readOnly = true)
+    public Integer suggestAttendanceScore(Long internUserId, LocalDate evaluationDate, int lookbackDays) {
+        User intern = userRepository.findById(internUserId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", internUserId));
+        if (intern.getRole() != Role.INTERN) {
+            throw new BadRequestException("internId must reference an INTERN");
+        }
+        int safeDays = Math.max(7, Math.min(120, lookbackDays));
+        LocalDate end = evaluationDate != null ? evaluationDate : AttendanceCalculationService.todayKigali();
+        LocalDate start = end.minusDays(safeDays - 1L);
+        var rows = attendanceRepository.findForUserInDateRange(internUserId, start, end);
+        if (rows.isEmpty()) {
+            return null;
+        }
+        Set<Attendance.AttendanceStatus> countedPresentStatuses = Set.of(
+                Attendance.AttendanceStatus.PRESENT,
+                Attendance.AttendanceStatus.LATE,
+                Attendance.AttendanceStatus.HALF_DAY,
+                Attendance.AttendanceStatus.REMOTE,
+                Attendance.AttendanceStatus.EXCUSED,
+                Attendance.AttendanceStatus.VALIDATED,
+                Attendance.AttendanceStatus.LEAVE
+        );
+        long present = rows.stream()
+                .filter(a -> a.getStatus() != Attendance.AttendanceStatus.ABSENT)
+                .filter(a -> a.getCheckInAt() != null || (a.getStatus() != null && countedPresentStatuses.contains(a.getStatus())))
+                .count();
+        double ratio = (double) present / rows.size();
+        int score = (int) Math.round(ratio * 100.0);
+        return Math.max(0, Math.min(100, score));
+    }
+
+    private void safelyRecomputeInternAi(Long internId) {
+        if (internId == null) {
+            return;
+        }
+        try {
+            aiInsightsService.recomputePerformanceScoreForIntern(internId);
+        } catch (Exception ex) {
+            log.warn("[evaluation] Could not recompute AI score for intern {}: {}", internId, ex.getMessage());
+        }
     }
 }

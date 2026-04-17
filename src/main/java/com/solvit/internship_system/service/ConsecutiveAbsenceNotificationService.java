@@ -10,6 +10,7 @@ import com.solvit.internship_system.repository.InternProfileRepository;
 import com.solvit.internship_system.repository.PublicHolidayRepository;
 import com.solvit.internship_system.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,6 +21,7 @@ import java.time.LocalDate;
  * When an intern reaches exactly five consecutive absent workdays (Mon–Fri within contract, excluding public holidays),
  * sends one warning email per streak end date (deduplicated in DB).
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ConsecutiveAbsenceNotificationService {
@@ -60,7 +62,11 @@ public class ConsecutiveAbsenceNotificationService {
         String fn = u.getFirstName() != null ? u.getFirstName() : "";
         String ln = u.getLastName() != null ? u.getLastName() : "";
         String display = (fn + " " + ln).trim();
-        emailService.sendConsecutiveAbsenceProgramWarning(u.getEmail(), display, end);
+        try {
+            emailService.sendConsecutiveAbsenceProgramWarning(u.getEmail(), display, end);
+        } catch (Exception e) {
+            log.warn("Consecutive absence email skipped for user {}: {}", userId, e.getMessage());
+        }
     }
 
     private int countConsecutiveAbsentWorkdaysEndingOn(Long userId, LocalDate endDate, InternProfile ip) {

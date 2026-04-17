@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS self_reflections (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    intern_id BIGINT NOT NULL,
+    week_number INT NOT NULL,
+    submission_date DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    accomplishments TEXT NULL,
+    challenges TEXT NULL,
+    goals_next_week TEXT NULL,
+    self_rating_attendance DECIMAL(4,2) NULL,
+    self_rating_tasks DECIMAL(4,2) NULL,
+    self_rating_skills DECIMAL(4,2) NULL,
+    self_rating_conduct DECIMAL(4,2) NULL,
+    overall_self_score DECIMAL(6,2) NULL,
+    mood VARCHAR(32) NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    KEY idx_self_reflections_intern (intern_id),
+    KEY idx_self_reflections_week (week_number),
+    CONSTRAINT fk_self_reflections_intern FOREIGN KEY (intern_id) REFERENCES interns(id),
+    CONSTRAINT uq_self_reflection_intern_week UNIQUE (intern_id, week_number)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -53,7 +53,7 @@ public class LeaveRequestController {
     }
 
     @GetMapping("/pending")
-    @PreAuthorize("hasAnyRole('SUPERVISOR','ADMIN','HR')")
+    @PreAuthorize("hasAnyRole('SUPERVISOR','ADMIN')")
     public ResponseEntity<Page<LeaveRequest>> getPending(Pageable pageable) {
         return ResponseEntity.ok(leaveRequestService.getPending(pageable));
     }
@@ -64,7 +64,7 @@ public class LeaveRequestController {
     }
 
     @PostMapping("/{id}/approve")
-    @PreAuthorize("hasAnyRole('SUPERVISOR','ADMIN','HR')")
+    @PreAuthorize("hasAnyRole('SUPERVISOR','ADMIN')")
     public ResponseEntity<LeaveRequest> approve(@RequestHeader("Authorization") String authHeader,
                                                 @PathVariable Long id) {
         Long approverId = jwtUtil.getUserIdFromToken(authHeader.substring(7));
@@ -72,7 +72,7 @@ public class LeaveRequestController {
     }
 
     @PostMapping("/{id}/reject")
-    @PreAuthorize("hasAnyRole('SUPERVISOR','ADMIN','HR')")
+    @PreAuthorize("hasAnyRole('SUPERVISOR','ADMIN')")
     public ResponseEntity<LeaveRequest> reject(@RequestHeader("Authorization") String authHeader,
                                                @PathVariable Long id, @RequestBody(required = false) Map<String, String> body) {
         Long approverId = jwtUtil.getUserIdFromToken(authHeader.substring(7));

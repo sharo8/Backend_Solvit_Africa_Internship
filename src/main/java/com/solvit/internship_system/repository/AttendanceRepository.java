@@ -19,6 +19,10 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
 
     List<Attendance> findByAttendanceDate(LocalDate date);
 
+    /** Eager user + modifier for admin roster (avoids lazy-init and N+1 when mapping to DTOs). */
+    @Query("SELECT DISTINCT a FROM Attendance a JOIN FETCH a.user LEFT JOIN FETCH a.modifiedBy WHERE a.attendanceDate = :date")
+    List<Attendance> findByAttendanceDateWithAssociations(@Param("date") LocalDate date);
+
     List<Attendance> findByUser_IdAndAttendanceDateBetweenOrderByAttendanceDateDesc(
             Long userId, LocalDate start, LocalDate end);
 

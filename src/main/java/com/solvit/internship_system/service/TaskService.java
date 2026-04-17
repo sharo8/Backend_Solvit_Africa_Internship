@@ -21,6 +21,7 @@ import com.solvit.internship_system.exception.ResourceNotFoundException;
 import com.solvit.internship_system.repository.AttendanceRepository;
 import com.solvit.internship_system.repository.InternProfileRepository;
 import com.solvit.internship_system.repository.ProjectRepository;
+import com.solvit.internship_system.repository.ProjectGroupRepository;
 import com.solvit.internship_system.repository.TaskRepository;
 import com.solvit.internship_system.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -51,6 +52,7 @@ public class TaskService {
     private final UserRepository userRepository;
     private final ProjectRepository projectRepository;
     private final ProjectGroupService projectGroupService;
+    private final ProjectGroupRepository projectGroupRepository;
     private final AttendanceRepository attendanceRepository;
     private final InternProfileRepository internProfileRepository;
     private final EmailService emailService;
@@ -135,6 +137,7 @@ public class TaskService {
                 Task task = buildNewTaskEntity(dto, assigner, assignee, supervisorUser, project, cohort, batchId, null);
                 Task saved = taskRepository.save(task);
                 sendTaskAssignedEmail(saved);
+                safelyRecomputeInternAi(assignee.getId());
                 created.add(toDto(saved));
             }
             if (created.isEmpty()) {
@@ -152,6 +155,7 @@ public class TaskService {
         if (assignee.getRole() != Role.INTERN) {
             throw new BadRequestException("Task can only be assigned to an INTERN");
         }
+        assertNoGroupSupervisorConflict(assignee.getId(), supervisorUser.getId());
         if (assigner.getRole() == Role.SUPERVISOR) {
             validateInternBelongsToSupervisor(assignee.getId(), supervisorUser.getId());
         }
@@ -188,6 +192,7 @@ public class TaskService {
         Task task = buildNewTaskEntity(dto, assigner, assignee, supervisorUser, project, null, null, dependsOnTemplate);
         Task saved = taskRepository.save(task);
         sendTaskAssignedEmail(saved);
+        safelyRecomputeInternAi(assignee.getId());
         return TasksCreatedResponseDto.builder().tasks(List.of(toDto(saved))).build();
     }
 
@@ -235,6 +240,29 @@ public class TaskService {
                 .orElseThrow(() -> new BadRequestException("Intern profile not found"));
         if (!Objects.equals(ip.getSupervisorUserId(), supervisorId)) {
             throw new AccessDeniedException("This intern is not under your supervision");
+        }
+    }
+
+    /**
+     * Business rule:
+     * If an intern is already in an active cohort group with supervisor A, the intern
+     * cannot receive an individual task under a different supervisor B.
+     */
+    private void assertNoGroupSupervisorConflict(Long internId, Long supervisorId) {
+        List<ProjectGroup> activeGroups = projectGroupRepository.findActiveByInternIdWithSupervisor(internId);
+        if (activeGroups.isEmpty()) {
+            return;
+        }
+        for (ProjectGroup g : activeGroups) {
+            User groupSupervisor = g.getSupervisor();
+            if (groupSupervisor == null || groupSupervisor.getId() == null) {
+                continue;
+            }
+            if (!Objects.equals(groupSupervisor.getId(), supervisorId)) {
+                throw new BadRequestException(
+                        "This intern is already assigned in active group '" + g.getName()
+                                + "' under another supervisor. You cannot assign the intern individually to a different supervisor.");
+            }
         }
     }
 
@@ -391,6 +419,7 @@ public class TaskService {
             saved.setEmailSent(true);
             taskRepository.save(saved);
         }
+        safelyRecomputeInternAi(saved.getAssignee() != null ? saved.getAssignee().getId() : null);
         return toDto(saved);
     }
 
@@ -449,6 +478,7 @@ public class TaskService {
             if (!saved.isCancelledEmailSent()) {
                 sendTaskCancelledEmail(saved);
             }
+            safelyRecomputeInternAi(saved.getAssignee() != null ? saved.getAssignee().getId() : null);
             return toDto(saved);
         }
 
@@ -506,6 +536,7 @@ public class TaskService {
             if (!saved.isCompletedEmailSent()) {
                 sendTaskSubmittedForReviewEmail(saved);
             }
+            safelyRecomputeInternAi(saved.getAssignee() != null ? saved.getAssignee().getId() : null);
             return toDto(saved);
         }
 
@@ -523,6 +554,7 @@ public class TaskService {
             t.setProgressPercent(Math.min(t.getProgressPercent() != null ? t.getProgressPercent() : 0, 99));
             Task saved = taskRepository.save(t);
             sendTaskUpdatedEmail(saved);
+            safelyRecomputeInternAi(saved.getAssignee() != null ? saved.getAssignee().getId() : null);
             return toDto(saved);
         }
 
@@ -603,6 +635,7 @@ public class TaskService {
                 && dto.getFeedbackNote().trim().length() > 0) {
             sendTaskFeedbackEmail(saved);
         }
+        safelyRecomputeInternAi(saved.getAssignee() != null ? saved.getAssignee().getId() : null);
         return toDto(saved);
     }
 
@@ -671,6 +704,7 @@ public class TaskService {
         Task saved = taskRepository.save(task);
         notifyInternTaskRejected(saved);
         sendTaskUpdatedEmail(saved);
+        safelyRecomputeInternAi(saved.getAssignee() != null ? saved.getAssignee().getId() : null);
         return toDto(saved);
     }
 
@@ -1272,5 +1306,16 @@ public class TaskService {
                 .profilePhotoUrl(u.getProfilePhotoUrl())
                 .role(u.getRole().name())
                 .build();
+    }
+
+    private void safelyRecomputeInternAi(Long internId) {
+        if (internId == null) {
+            return;
+        }
+        try {
+            aiInsightsService.recomputePerformanceScoreForIntern(internId);
+        } catch (Exception ex) {
+            log.warn("[tasks] Could not recompute AI score for intern {}: {}", internId, ex.getMessage());
+        }
     }
 }
